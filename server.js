@@ -48,8 +48,21 @@ async function extractStreamLink(embedUrl) {
         // Buka URL embed dan tunggu sampai network lumayan stabil
         await page.goto(embedUrl, { waitUntil: 'networkidle2', timeout: 30000 });
 
-        // Tunggu 5 detik ekstra untuk memberi waktu JavaScript player merender link
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        // --- TAMBAHAN PERBAIKAN: Simulasi Klik untuk Memancing Video ---
+        console.log("Mencoba klik tengah layar untuk bypass pop-up dan play video...");
+        
+        // Klik pertama (biasanya memicu iklan pop-up)
+        await page.mouse.click(400, 300); 
+        
+        // Jeda 1 detik
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Klik kedua (menekan tombol play yang sesungguhnya)
+        await page.mouse.click(400, 300);
+        // ----------------------------------------------------------------
+
+        // Tunggu 8 detik ekstra agar request m3u8 sempat berjalan dan tertangkap jaring
+        await new Promise(resolve => setTimeout(resolve, 8000));
 
         await browser.close();
         return directLink;
@@ -145,3 +158,4 @@ app.listen(PORT, () => {
     console.log(`API Anime Scraper Berjalan di Port: ${PORT}`);
     console.log(`=========================================`);
 });
+    

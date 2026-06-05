@@ -18,7 +18,7 @@ async function extractStreamLink(embedUrl) {
     try {
         // Konfigurasi Puppeteer khusus untuk STB / Linux ARM
         browser = await puppeteer.launch({
-            executablePath: '/usr/bin/chromium-browser', // Sesuaikan jika path Chromium di STB-mu berbeda (misal: /usr/bin/chromium)
+            executablePath: '/usr/bin/chromium', // Sesuaikan jika path Chromium di STB-mu berbeda (misal: /usr/bin/chromium)
             headless: true,
             args: [
                 '--no-sandbox',

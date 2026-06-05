@@ -2,160 +2,171 @@ const express = require('express');
 const puppeteer = require('puppeteer-core');
 const { File } = require('megajs');
 const cors = require('cors');
+const axios = require('axios');
 
 const app = express();
-const PORT = 3002; // Sesuai dengan port yang kamu buka di router/Cloudflare
+const PORT = 3002;
 
-// Mengaktifkan CORS agar API bisa diakses dari mana saja
 app.use(cors());
 app.use(express.json());
 
 // ==========================================
-// 1. FUNGSI SCRAPER: VIDHIDE & DESUSTREAM
+// 1. FUNGSI SCRAPER UTAMA
 // ==========================================
 async function extractStreamLink(embedUrl) {
     let browser;
     try {
-        // Konfigurasi Puppeteer khusus untuk STB / Linux ARM
         browser = await puppeteer.launch({
-            executablePath: '/usr/bin/chromium', // Sesuaikan jika path Chromium di STB-mu berbeda (misal: /usr/bin/chromium)
+            executablePath: '/usr/bin/chromium',
             headless: true,
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--disable-gpu'
-            ]
+            args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu']
         });
 
         const page = await browser.newPage();
-        
-        // Memalsukan User-Agent agar tidak diblokir oleh anti-bot Vidhide/Desustream
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36');
 
         let directLink = null;
 
-        // Mencegat semua traffic jaringan (Network tab)
         page.on('request', request => {
             const reqUrl = request.url();
-            // Filter: Mencari URL yang mengandung .m3u8 (HLS stream) atau .mp4
             if (reqUrl.includes('.m3u8') || reqUrl.includes('.mp4') || reqUrl.includes('/v.mp4')) {
                 directLink = reqUrl;
             }
         });
 
-        // Buka URL embed dan tunggu sampai network lumayan stabil
         await page.goto(embedUrl, { waitUntil: 'networkidle2', timeout: 30000 });
-
-        // --- TAMBAHAN PERBAIKAN: Simulasi Klik untuk Memancing Video ---
-        console.log("Mencoba klik tengah layar untuk bypass pop-up dan play video...");
         
-        // Klik pertama (biasanya memicu iklan pop-up)
+        // Klik untuk bypass iklan/tombol play
+        console.log("Mencoba klik tengah layar...");
         await page.mouse.click(400, 300); 
-        
-        // Jeda 1 detik
         await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        // Klik kedua (menekan tombol play yang sesungguhnya)
         await page.mouse.click(400, 300);
-        // ----------------------------------------------------------------
 
-        // Tunggu 8 detik ekstra agar request m3u8 sempat berjalan dan tertangkap jaring
         await new Promise(resolve => setTimeout(resolve, 8000));
-
         await browser.close();
+        
         return directLink;
-
     } catch (error) {
         if (browser) await browser.close();
-        console.error("Error scraping Puppeteer:", error.message);
+        console.error("Error scraping:", error.message);
         return null;
     }
 }
 
 // ==========================================
-// 2. ENDPOINT STREAMING KHUSUS MEGA.NZ
+// 2. ENDPOINT PROXY (MENYEDOT & MENGALIRKAN VIDEO)
 // ==========================================
-// Mega tidak di-scrape direct link-nya, melainkan datanya "disedot" dan dialirkan langsung oleh STB
+app.get('/api/proxy', async (req, res) => {
+    const targetUrl = req.query.url;
+    if (!targetUrl) return res.status(400).send("URL tidak ada");
+
+    try {
+        const headers = {
+            'Referer': 'https://vidhidepro.com/',
+            'Origin': 'https://vidhidepro.com',
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+        };
+
+        // Jika ini adalah file playlist .m3u8, kita harus membedahnya
+        if (targetUrl.includes('.m3u8')) {
+            const response = await axios.get(targetUrl, { headers });
+            let m3u8Data = response.data;
+
+            // Mengambil URL dasar untuk menggabungkan jalur relatif
+            const urlParts = targetUrl.split('/');
+            urlParts.pop();
+            const baseUrl = urlParts.join('/');
+
+            // Menulis ulang semua isi m3u8 agar melewati server STB kita
+            const rewritten = m3u8Data.split('\n').map(line => {
+                if (line && !line.startsWith('#')) {
+                    let absoluteUrl = line.startsWith('http') ? line : `${baseUrl}/${line}`;
+                    if(line.startsWith('/')) {
+                        absoluteUrl = `${new URL(targetUrl).origin}${line}`;
+                    }
+                    // Arahkan ke STB
+                    return `https://${req.get('host')}/api/proxy?url=${encodeURIComponent(absoluteUrl)}`;
+                }
+                return line;
+            }).join('\n');
+
+            res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+            return res.send(rewritten);
+            
+        } else {
+            // Jika ini potongan video (.ts) atau .mp4, langsung alirkan!
+            const response = await axios({
+                method: 'get',
+                url: targetUrl,
+                headers: headers,
+                responseType: 'stream'
+            });
+            res.setHeader('Content-Type', response.headers['content-type'] || 'video/MP2T');
+            response.data.pipe(res);
+        }
+    } catch (error) {
+        console.error('Error di Proxy:', error.message);
+        res.status(500).send('Gagal mem-proxy video');
+    }
+});
+
+// ==========================================
+// 3. ENDPOINT STREAMING MEGA.NZ
+// ==========================================
 app.get('/api/stream-mega', async (req, res) => {
     const megaUrl = req.query.url;
-
-    if (!megaUrl) {
-        return res.status(400).send('URL Mega tidak disediakan');
-    }
+    if (!megaUrl) return res.status(400).send('URL Mega kosong');
 
     try {
         const file = File.fromURL(megaUrl);
         await file.loadAttributes();
-
-        // Mengirimkan header video agar VideoView Android mengenalinya sebagai media
         res.writeHead(200, {
             'Content-Type': 'video/mp4',
             'Content-Length': file.size,
             'Accept-Ranges': 'bytes'
         });
-
-        // Mengalirkan (piping) hasil dekripsi video dari Mega langsung ke output klien
-        const stream = file.download();
-        stream.pipe(res);
-
+        file.download().pipe(res);
     } catch (error) {
-        console.error('Error Mega Stream:', error);
-        res.status(500).send('Gagal memproses file Mega');
+        res.status(500).send('Gagal Mega');
     }
 });
 
 // ==========================================
-// 3. ENDPOINT UTAMA (ROUTER)
+// 4. ROUTER UTAMA
 // ==========================================
 app.get('/api/get-video', async (req, res) => {
     const targetUrl = req.query.url;
+    if (!targetUrl) return res.status(400).json({ success: false, error: 'Url kosong' });
 
-    if (!targetUrl) {
-        return res.status(400).json({ success: false, error: 'Parameter url wajib diisi' });
-    }
+    console.log(`[+] Scrape: ${targetUrl}`);
+    const host = req.get('host');
+    const protocol = req.protocol;
 
-    console.log(`Menerima request untuk: ${targetUrl}`);
-
-    // LOGIKA A: Jika sumbernya Mega.nz
     if (targetUrl.includes('mega.nz')) {
-        // Arahkan klien (Sketchware) ke endpoint /api/stream-mega di server ini
-        const host = req.get('host'); // Akan mendeteksi api.nekostream.online atau localhost:3002
-        const protocol = req.protocol; // http atau https
-        
-        const localStreamUrl = `${protocol}://${host}/api/stream-mega?url=${encodeURIComponent(targetUrl)}`;
-        
         return res.json({ 
             success: true, 
             source: 'mega',
-            direct_url: localStreamUrl 
+            direct_url: `${protocol}://${host}/api/stream-mega?url=${encodeURIComponent(targetUrl)}` 
         });
     } 
     
-    // LOGIKA B: Jika sumbernya Vidhide atau Desustream
     if (targetUrl.includes('vidhide') || targetUrl.includes('desustream')) {
         const directUrl = await extractStreamLink(targetUrl);
-        
         if (directUrl) {
+            // --- KUNCI UTAMA: Kita bungkus link asli dengan Proxy STB kita ---
+            const proxyUrl = `${protocol}://${host}/api/proxy?url=${encodeURIComponent(directUrl)}`;
+            
             return res.json({ 
                 success: true, 
                 source: 'scraper',
-                direct_url: directUrl 
+                direct_url: proxyUrl // Link inilah yang akan diterima Sketchware
             });
         } else {
-            return res.status(404).json({ success: false, message: 'Gagal mengekstrak direct link video' });
+            return res.status(404).json({ success: false, message: 'Gagal ekstrak link' });
         }
     }
 
-    // LOGIKA C: Sumber tidak dikenali
-    res.status(400).json({ success: false, error: 'Sumber URL tidak didukung API ini' });
+    res.status(400).json({ success: false, error: 'Sumber tidak didukung' });
 });
 
-// Jalankan Server
-app.listen(PORT, () => {
-    console.log(`=========================================`);
-    console.log(`API Anime Scraper Berjalan di Port: ${PORT}`);
-    console.log(`=========================================`);
-});
-    
+app.listen(PORT, () => console.log(`API Scraper & Proxy STB Berjalan di Port ${PORT}`));

@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>cPanel - Admin Panel</title>
+    <!-- CSS & UI Frameworks -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- XTERM.JS & SOCKET.IO -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.1.0/css/xterm.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.1.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.7.0/lib/xterm-addon-fit.min.js"></script>
+    <script src="/socket.io/socket.io.js"></script>
+
+    <style>
+        body { background-color: #f4f7fa; }
+        .cpanel-header { background-color: #293a4a; }
+        .cpanel-category { background-color: #f8f9fa; border-bottom: 1px solid #e1e5e8; }
+        .icon-box:hover { background-color: #f1f5f9; border-radius: 4px; }
+        #terminal-container .xterm-viewport { background-color: #1e1e1e !important; }
+    </style>
+</head>
+<body class="text-gray-700 text-sm font-sans relative">
+
+    <!-- ============================================== -->
+    <!-- VIEW: LOGIN PAGE                               -->
+    <!-- ============================================== -->
+    <div id="login-view" class="min-h-screen flex items-center justify-center bg-gray-900 px-4">
+        <div class="bg-white p-8 rounded-lg shadow-xl w-full max-w-md">
+            <div class="text-center mb-8">
+                <span class="text-4xl font-bold tracking-wider text-orange-500"><i class="fa-brands fa-cpanel"></i> Neko<span class="text-gray-800">panel</span></span>
+                <p class="text-gray-500 mt-2">NekoPanel Management Login</p>
+            </div>
+            
+            <div id="login-error" class="hidden bg-red-100 text-red-700 p-3 rounded mb-4 text-center text-xs font-bold"></div>
+
+            <form id="login-form" class="space-y-4">
+                <div>
+                    <label class="block text-gray-700 mb-1 font-bold">Username</label>
+                    <div class="relative">
+                        <i class="fa-solid fa-user absolute left-3 top-3 text-gray-400"></i>
+                        <input type="text" id="username" class="w-full border border-gray-300 rounded pl-10 pr-3 py-2 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" required>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-gray-700 mb-1 font-bold">Password</label>
+                    <div class="relative">
+                        <i class="fa-solid fa-lock absolute left-3 top-3 text-gray-400"></i>
+                        <input type="password" id="password" class="w-full border border-gray-300 rounded pl-10 pr-3 py-2 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" required>
+                    </div>
+                </div>
+                <button type="submit" class="w-full bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-4 rounded transition">Log in</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- VIEW 2: DASHBOARD -->
+    <div id="dashboard-view" class="hidden min-h-screen flex-col">
+        <nav class="cpanel-header text-white p-3 flex justify-between items-center shadow-md">
+            <span class="text-xl font-bold tracking-wider text-orange-400"><i class="fa-brands fa-cpanel"></i> cp<span class="text-white">panel</span></span>
+            <div class="flex items-center gap-4 text-sm text-gray-300">
+                <span class="font-bold text-white"><i class="fa-regular fa-user mr-1"></i> <span id="nav-user">admin</span></span>
+                <button onclick="logout()" class="hover:text-red-400 font-bold"><i class="fa-solid fa-right-from-bracket mr-1"></i> Logout</button>
+            </div>
+        </nav>
+
+        <div class="max-w-7xl mx-auto w-full mt-6 flex flex-col lg:flex-row gap-6 px-4 pb-10 flex-1">
+            <div class="w-full lg:w-3/4 flex flex-col gap-6">
+                <!-- PANEL MENU -->
+                <div class="bg-white border border-gray-200 rounded shadow-sm">
+                    <div class="cpanel-category px-4 py-2 font-bold text-gray-800 text-base"><span><i class="fa-solid fa-server text-gray-500 mr-2"></i> SYSTEM & FILES</span></div>
+                    <div class="p-4 grid grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                        <div onclick="openFileManager()" class="icon-box cursor-pointer text-center p-3 flex flex-col items-center gap-2 text-blue-700 transition"><i class="fa-solid fa-folder-tree text-3xl text-yellow-500"></i><span class="text-xs">File Manager</span></div>
+                        <div onclick="openTerminal()" class="icon-box cursor-pointer text-center p-3 flex flex-col items-center gap-2 text-blue-700 transition"><i class="fa-solid fa-terminal text-3xl text-gray-800"></i><span class="text-xs">Terminal</span></div>
+                        <div onclick="alert('Disk Terpakai: ' + globalStats.stats.disk.percent + '%')" class="icon-box cursor-pointer text-center p-3 flex flex-col items-center gap-2 text-blue-700 transition"><i class="fa-solid fa-hard-drive text-3xl text-gray-500"></i><span class="text-xs">Disk Usage</span></div>
+                        <div onclick="downloadBackup()" class="icon-box cursor-pointer text-center p-3 flex flex-col items-center gap-2 text-blue-700 transition"><i class="fa-solid fa-cloud-arrow-up text-3xl text-blue-400"></i><span class="text-xs">Backup Home</span></div>
+                    </div>
+                </div>
+
+                <!-- TABLE NODE.JS -->
+                <div class="bg-white border border-gray-200 rounded shadow-sm">
+                    <div class="cpanel-category px-4 py-3 font-bold text-gray-800 text-base flex justify-between items-center">
+                        <span><i class="fa-brands fa-node-js text-green-600 mr-2"></i> NODE.JS APPLICATIONS</span>
+                        <button onclick="document.getElementById('create-app-modal').classList.remove('hidden')" class="bg-blue-600 hover:bg-blue-700 text-white text-xs px-3 py-1.5 rounded shadow">+ Create App</button>
+                    </div>
+                    <div class="p-4 overflow-x-auto">
+                        <table class="w-full text-left border-collapse min-w-[600px]">
+                            <thead><tr class="bg-gray-50 border-b border-t text-gray-600 text-xs uppercase"><th class="p-3">App Name</th><th class="p-3">Domain/URL</th><th class="p-3 text-center">Port</th><th class="p-3 text-center">Status</th><th class="p-3 text-center">Actions</th></tr></thead>
+                            <tbody id="website-list" class="text-sm"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <!-- RIGHT SIDEBAR STATS -->
+            <div class="w-full lg:w-1/4 flex flex-col gap-6">
+                <!-- GENERAL INFO -->
+                <div class="bg-white border rounded shadow-sm">
+                    <div class="cpanel-category px-3 py-2 font-bold text-gray-800 text-xs">GENERAL INFORMATION</div>
+                    <div class="p-3 text-xs">
+                        <div class="flex justify-between py-1 border-b border-gray-100 border-dotted"><span class="text-gray-500">User</span><span id="gen-user" class="font-bold">...</span></div>
+                        <div class="flex justify-between py-1 border-b border-gray-100 border-dotted"><span class="text-gray-500">OS</span><span id="gen-os" class="font-bold text-blue-600 text-right ml-2 leading-tight">...</span></div>
+                        <div class="flex justify-between py-1 border-b border-gray-100 border-dotted"><span class="text-gray-500">Uptime</span><span id="gen-uptime" class="font-bold">...</span></div>
+                        <div class="flex justify-between py-1 border-b border-gray-100 border-dotted"><span class="text-gray-500">Server IP</span><span id="gen-ip" class="font-bold">...</span></div>
+                    </div>
+                </div>
+
+                <!-- STATISTICS -->
+                <div class="bg-white border rounded shadow-sm">
+                    <div class="cpanel-category px-3 py-2 font-bold text-gray-800 text-xs">STATISTICS</div>
+                    <div class="p-3">
+                        <div class="mb-4 text-xs"><div class="flex justify-between mb-1"><span class="text-blue-700">CPU Load</span><span id="stat-cpu-text" class="font-bold">0%</span></div><div class="w-full bg-gray-200 rounded h-2"><div id="stat-cpu-bar" class="bg-blue-500 h-2 rounded transition-all" style="width: 0%"></div></div></div>
+                        
+                        <div class="mb-4 text-xs flex justify-between items-center">
+                            <span class="text-red-600 font-bold"><i class="fa-solid fa-temperature-half mr-1"></i> CPU Temp</span>
+                            <span id="stat-temp-text" class="font-bold text-lg text-gray-800">...</span>
+                        </div>
+
+                        <div class="mb-4 text-xs"><div class="flex justify-between mb-1"><span class="text-blue-700">RAM</span><span id="stat-ram-text" class="font-bold">0GB</span></div><div class="w-full bg-gray-200 rounded h-2"><div id="stat-ram-bar" class="bg-yellow-500 h-2 rounded transition-all" style="width: 0%"></div></div></div>
+                        <div class="mb-2 text-xs"><div class="flex justify-between mb-1"><span class="text-blue-700">Disk (Root)</span><span id="stat-disk-text" class="font-bold">0G</span></div><div class="w-full bg-gray-200 rounded h-2"><div id="stat-disk-bar" class="bg-blue-500 h-2 rounded transition-all" style="width: 0%"></div></div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: TERMINAL -->
+    <div id="terminal-modal" class="hidden fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-4">
+        <div class="bg-[#1e1e1e] w-full max-w-4xl rounded-lg shadow-2xl flex flex-col h-[70vh]">
+            <div class="bg-gray-800 text-white px-4 py-3 rounded-t-lg flex justify-between items-center"><h3 class="font-bold text-sm"><i class="fa-solid fa-terminal mr-2"></i> Web Terminal (Bash)</h3><button onclick="closeTerminal()" class="text-gray-300 hover:text-white"><i class="fa-solid fa-xmark text-lg"></i></button></div>
+            <div id="terminal-container" class="flex-1 p-2 w-full h-full overflow-hidden"></div>
+        </div>
+    </div>
+
+    <!-- MODAL: FILE MANAGER -->
+    <div id="fm-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-5xl rounded-lg shadow-2xl flex flex-col h-[85vh]">
+            <div class="bg-gray-800 text-white px-4 py-3 flex justify-between items-center"><h3 class="font-bold"><i class="fa-solid fa-folder-tree text-yellow-500 mr-2"></i> File Manager</h3><button onclick="document.getElementById('fm-modal').classList.add('hidden')" class="text-gray-300 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button></div>
+            <div class="p-3 bg-gray-100 border-b flex flex-wrap gap-3 items-center justify-between">
+                <div class="flex flex-1 items-center gap-2">
+                    <button onclick="goUpDirectory()" class="bg-white border px-3 py-1 rounded hover:bg-gray-50"><i class="fa-solid fa-level-up-alt"></i></button>
+                    <input type="text" id="fm-current-path" class="w-full px-2 py-1 outline-none text-sm font-mono border rounded" readonly>
+                </div>
+                <div class="flex items-center gap-2">
+                    <input type="file" id="fm-upload-input" class="hidden" onchange="handleFileUpload(event)">
+                    <button onclick="document.getElementById('fm-upload-input').click()" class="bg-blue-600 text-white px-4 py-1 rounded shadow hover:bg-blue-700 text-xs font-bold">Upload</button>
+                </div>
+            </div>
+            <div class="flex-1 overflow-y-auto p-0">
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-gray-50 sticky top-0 border-b"><tr class="text-xs uppercase"><th class="p-3 text-center">Icon</th><th class="p-3">Name</th><th class="p-3 text-right">Action</th></tr></thead>
+                    <tbody id="fm-list" class="text-sm"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL: CREATE APP -->
+    <div id="create-app-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-lg shadow-2xl overflow-hidden">
+            <div class="bg-gray-800 text-white px-4 py-3 flex justify-between items-center"><h3 class="font-bold">Deploy New App</h3><button onclick="document.getElementById('create-app-modal').classList.add('hidden')" class="text-gray-300 hover:text-white"><i class="fa-solid fa-xmark text-xl"></i></button></div>
+            <form id="create-app-form" class="p-6 space-y-4">
+                <div><label class="block text-xs font-bold mb-1">App Name</label><input type="text" id="app-name" class="w-full border rounded p-2" required></div>
+                <div><label class="block text-xs font-bold mb-1">App Script Path</label><input type="text" id="app-script" class="w-full border rounded p-2" required></div>
+                <div class="flex gap-4">
+                    <div class="flex-1"><label class="block text-xs font-bold mb-1">Domain URL</label><input type="text" id="app-domain" class="w-full border rounded p-2"></div>
+                    <div class="w-24"><label class="block text-xs font-bold mb-1">Port</label><input type="number" id="app-port" class="w-full border rounded p-2"></div>
+                </div>
+                <button type="submit" class="w-full bg-blue-600 text-white font-bold py-2 rounded mt-2">Deploy App</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- JAVASCRIPT LOGIC -->
+    <script>
+        let globalStats = null, currentFmPath = '', terminal, socket;
+
+        // AUTHENTICATION
+        function checkLoginState() {
+            if (localStorage.getItem('cpanel_token')) {
+                document.getElementById('login-view').classList.add('hidden');
+                document.getElementById('dashboard-view').classList.remove('hidden');
+                document.getElementById('dashboard-view').classList.add('flex');
+                fetchServerStats(); fetchWebsites(); setInterval(fetchServerStats, 3000); setInterval(fetchWebsites, 3000);
+            } else logout();
+        }
+        function logout() { localStorage.removeItem('cpanel_token'); location.reload(); }
+        
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const u = document.getElementById('username').value, p = document.getElementById('password').value;
+            const res = await fetch('/api/login', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({username: u, password: p}) });
+            const data = await res.json();
+            if (data.success) { localStorage.setItem('cpanel_token', data.token); location.reload(); } 
+            else { 
+                const errBox = document.getElementById('login-error');
+                errBox.innerText = data.error; 
+                errBox.classList.remove('hidden');
+            }
+        });
+
+        async function fetchWithAuth(url, options = {}) {
+            if (!options.headers) options.headers = {};
+            if (!(options.body instanceof FormData)) options.headers['Content-Type'] = 'application/json';
+            options.headers['Authorization'] = `Bearer ${localStorage.getItem('cpanel_token')}`;
+            const res = await fetch(url, options); if (res.status === 401) logout(); return res;
+        }
+
+        // TERMINAL
+        function openTerminal() {
+            document.getElementById('terminal-modal').classList.remove('hidden');
+            if (!terminal) {
+                terminal = new Terminal({ theme: { background: '#1e1e1e' }, cursorBlink: true });
+                const fitAddon = new FitAddon.FitAddon(); terminal.loadAddon(fitAddon);
+                terminal.open(document.getElementById('terminal-container')); fitAddon.fit();
+                socket = io({ auth: { token: localStorage.getItem('cpanel_token') } });
+                socket.on('terminal.out', (data) => terminal.write(data));
+                terminal.onData((data) => socket.emit('terminal.in', data));
+                socket.emit('terminal.in', "clear\n");
+            }
+        }
+        function closeTerminal() { document.getElementById('terminal-modal').classList.add('hidden'); }
+
+        // DASHBOARD (Termasuk Uptime, OS, Suhu, dsb)
+        async function fetchServerStats() {
+            try {
+                const res = await fetchWithAuth('/api/server-stats'); const data = await res.json(); globalStats = data;
+                
+                document.getElementById('nav-user').innerText = data.general.user;
+                document.getElementById('gen-user').innerText = data.general.user;
+                document.getElementById('gen-os').innerText = data.general.os;
+                document.getElementById('gen-uptime').innerText = data.general.uptime;
+                document.getElementById('gen-ip').innerText = data.general.ip;
+                
+                document.getElementById('stat-temp-text').innerText = data.stats.temp;
+                
+                document.getElementById('stat-cpu-text').innerText = `${data.stats.cpu}%`; 
+                document.getElementById('stat-cpu-bar').style.width = `${data.stats.cpu}%`;
+                document.getElementById('stat-cpu-bar').className = data.stats.cpu > 80 ? "bg-red-500 h-2 rounded transition-all" : "bg-blue-500 h-2 rounded transition-all";
+                
+                document.getElementById('stat-ram-text').innerText = `${data.stats.ram.used} GB / ${data.stats.ram.total} GB`; 
+                document.getElementById('stat-ram-bar').style.width = `${data.stats.ram.percent}%`;
+                
+                document.getElementById('stat-disk-text').innerText = `${data.stats.disk.used} / ${data.stats.disk.total}`; 
+                document.getElementById('stat-disk-bar').style.width = `${data.stats.disk.percent}%`;
+            } catch (e) {}
+        }
+
+        async function fetchWebsites() {
+            try {
+                const res = await fetchWithAuth('/api/websites'); const websites = await res.json();
+                document.getElementById('website-list').innerHTML = websites.map(site => `
+                    <tr class="border-b hover:bg-gray-50"><td class="p-3 font-bold text-blue-600">${site.name} ${site.pm_id !== null ? `<div class="text-[10px] text-gray-400 font-normal">PID: ${site.pm_id}</div>` : ''}</td><td class="p-3 text-blue-600">${site.domain !== '-' ? `<a href="https://${site.domain}" target="_blank" class="hover:underline">${site.domain}</a>` : '-'}</td><td class="p-3 text-center font-mono">${site.port}</td>
+                    <td class="p-3 text-center"><span class="px-2 py-0.5 rounded text-xs font-bold ${site.status === 'online' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${site.status.toUpperCase()}</span></td>
+                    <td class="p-3 text-center flex justify-center gap-3">
+                        ${site.pm_id !== null ? `
+                            <button onclick="triggerAction(${site.pm_id}, 'start')" class="text-green-600"><i class="fa-solid fa-play"></i></button>
+                            <button onclick="triggerAction(${site.pm_id}, 'restart')" class="text-orange-500"><i class="fa-solid fa-rotate-right"></i></button>
+                            <button onclick="triggerAction(${site.pm_id}, 'stop')" class="text-red-600"><i class="fa-solid fa-stop"></i></button>
+                        ` : '<span class="text-xs text-gray-400 italic">Not running</span>'}
+                    </td></tr>
+                `).join('');
+            } catch (e) {}
+        }
+        async function triggerAction(pm_id, action) { await fetchWithAuth('/api/action', { method: 'POST', body: JSON.stringify({ pm_id, action }) }); fetchWebsites(); }
+
+        // FILE MANAGER
+        function openFileManager() { document.getElementById('fm-modal').classList.remove('hidden'); loadDirectory(''); }
+        function goUpDirectory() { loadDirectory(currentFmPath.substring(0, currentFmPath.lastIndexOf('/')) || '/'); }
+        async function loadDirectory(path) {
+            const res = await fetchWithAuth('/api/files', { method: 'POST', body: JSON.stringify({ path }) }); const data = await res.json();
+            if(!data.success) return alert(data.error); currentFmPath = data.currentPath; document.getElementById('fm-current-path').value = currentFmPath;
+            document.getElementById('fm-list').innerHTML = data.items.map(i => `
+                <tr class="border-b hover:bg-blue-50 group"><td class="p-3 text-center">${i.isDirectory ? '<i class="fa-solid fa-folder text-yellow-400 text-xl"></i>' : '<i class="fa-regular fa-file text-gray-500 text-xl"></i>'}</td>
+                <td class="p-3 ${i.isDirectory ? 'cursor-pointer font-bold hover:text-blue-600' : ''}" ${i.isDirectory ? `onclick="loadDirectory('${currentFmPath}/${i.name}')"` : ''}>${i.name}</td>
+                <td class="p-3 text-right opacity-0 group-hover:opacity-100"><button onclick="deleteFile('${currentFmPath}/${i.name}')" class="text-red-500 text-xs px-2"><i class="fa-solid fa-trash"></i></button>
+                ${!i.isDirectory ? `<button onclick="window.open('/api/download?path=${encodeURIComponent(currentFmPath + '/' + i.name)}&token=${localStorage.getItem('cpanel_token')}')" class="text-blue-500 text-xs px-2"><i class="fa-solid fa-download"></i></button>` : ''}</td></tr>
+            `).join('');
+        }
+        async function deleteFile(path) { if(confirm('Hapus file/folder ini?')) { await fetchWithAuth('/api/files/delete', { method: 'POST', body: JSON.stringify({ path }) }); loadDirectory(currentFmPath); } }
+        async function handleFileUpload(e) { const f = new FormData(); f.append('file', e.target.files[0]); f.append('targetPath', currentFmPath); await fetchWithAuth('/api/files/upload', { method: 'POST', body: f }); loadDirectory(currentFmPath); }
+        function downloadBackup() { if(confirm("Mulai backup Home Directory? File akan otomatis didownload.")) window.open(`/api/backup?token=${localStorage.getItem('cpanel_token')}`); }
+        
+        // DEPLOY APP
+        document.getElementById('create-app-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            await fetchWithAuth('/api/apps/create', { method: 'POST', body: JSON.stringify({ appName: document.getElementById('app-name').value, scriptPath: document.getElementById('app-script').value, domain: document.getElementById('app-domain').value, port: document.getElementById('app-port').value }) });
+            document.getElementById('create-app-modal').classList.add('hidden'); fetchWebsites();
+        });
+
+        checkLoginState();
+    </script>
+</body>
+</html>

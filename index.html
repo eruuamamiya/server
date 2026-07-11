@@ -250,17 +250,27 @@
 
         async function fetchWebsites() {
             try {
-                const res = await fetchWithAuth('/api/websites'); const websites = await res.json();
+                const res = await fetchWithAuth('/api/websites'); 
+                const websites = await res.json();
+                
+                // Kalau array kosong, kasih pesan "No Apps Found" di tabel
+                if (websites.length === 0) {
+                    document.getElementById('website-list').innerHTML = '<tr><td colspan="5" class="p-4 text-center text-gray-500">No Apps with Domain Found</td></tr>';
+                    return;
+                }
+
                 document.getElementById('website-list').innerHTML = websites.map(site => `
-                    <tr class="border-b hover:bg-gray-50"><td class="p-3 font-bold text-blue-600">${site.name} ${site.pm_id !== null ? `<div class="text-[10px] text-gray-400 font-normal">PID: ${site.pm_id}</div>` : ''}</td><td class="p-3 text-blue-600">${site.domain !== '-' ? `<a href="https://${site.domain}" target="_blank" class="hover:underline">${site.domain}</a>` : '-'}</td><td class="p-3 text-center font-mono">${site.port}</td>
-                    <td class="p-3 text-center"><span class="px-2 py-0.5 rounded text-xs font-bold ${site.status === 'online' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${site.status.toUpperCase()}</span></td>
-                    <td class="p-3 text-center flex justify-center gap-3">
-                        ${site.pm_id !== null ? `
+                    <tr class="border-b hover:bg-gray-50 transition">
+                        <td class="p-3 font-bold text-gray-800">${site.name} <div class="text-[10px] text-gray-400 font-normal">PID: ${site.pm_id}</div></td>
+                        <td class="p-3 text-blue-600"><a href="https://${site.domain}" target="_blank" class="hover:underline">${site.domain}</a></td>
+                        <td class="p-3 text-center font-mono">${site.port}</td>
+                        <td class="p-3 text-center"><span class="px-2 py-0.5 rounded text-xs font-bold ${site.status === 'online' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}">${site.status.toUpperCase()}</span></td>
+                        <td class="p-3 text-center flex justify-center gap-3">
                             <button onclick="triggerAction(${site.pm_id}, 'start')" class="text-green-600"><i class="fa-solid fa-play"></i></button>
                             <button onclick="triggerAction(${site.pm_id}, 'restart')" class="text-orange-500"><i class="fa-solid fa-rotate-right"></i></button>
                             <button onclick="triggerAction(${site.pm_id}, 'stop')" class="text-red-600"><i class="fa-solid fa-stop"></i></button>
-                        ` : '<span class="text-xs text-gray-400 italic">Not running</span>'}
-                    </td></tr>
+                        </td>
+                    </tr>
                 `).join('');
             } catch (e) {}
         }

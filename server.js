@@ -24,10 +24,10 @@ const JWT_SECRET = 'rahasia-super-panel-cpanel-clone';
 
 // Kredensial Cloudflare Zero Trust
 const CF_ACCOUNT_ID = '6b219b9ca85b3a5faea24c1dc03af06a';
-const CF_API_TOKEN = 'cfut_4b11NWYM3CwGyE4002lvSssQ4zl4jz92k88E385I0eab7983';
+const CF_API_TOKEN = 'auth';
 const CF_TUNNEL_IDS = [
-    '3696ff2c-d48f-410b-850a-285125ca0b1d',
-    '29e87c90-b790-4d65-8351-cb166be8546f'
+    'tunnel1',
+    'tunnel2'
 ];
 
 app.use(cors());

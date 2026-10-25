@@ -38,14 +38,22 @@ function diff(list, seen) {
   return list.filter(o => aid(o) && seen[aid(o)] !== keyOf(o));
 }
 
-const linkOf = o => `https://nekostream.online/detail.html?id=${aid(o)}`;
+const linkOf = o => `${cfg.SITE}/#/anime/${encodeURIComponent(aid(o))}`;
 
-// format pesan sama seperti script lama
+// format pesan ala embed bot Discord: header, judul dalam kutipan, field berlabel, link
 function caption(o) {
-  return `🔥 *EPISODE BARU RILIS!*\n\n` +
-         `🎬 *Judul:* ${ttl(o)}\n` +
-         `📺 *Episode:* ${o.episodes ?? '-'}\n` +
-         `🔗 *Link:* ${linkOf(o)}`;
+  const when = [o.releaseDay, o.latestReleaseDate || o.lastReleaseDate].filter(Boolean).join(', ');
+  const hasEp = o.episodes != null && o.episodes !== '';
+  const lines = [
+    '📢 *Episode Baru Rilis*',
+    '',
+    `> *${ttl(o)}*`,
+    '',
+  ];
+  if (hasEp) lines.push(`▸ *Episode* : ${o.episodes}`);
+  if (when) lines.push(`▸ *Rilis* : ${when}`);
+  lines.push('▸ *Subtitle* : Indonesia', '', `🔗 *Nonton:* ${linkOf(o)}`);
+  return lines.join('\n');
 }
 
 /* ===================== STATE ===================== */
@@ -123,22 +131,33 @@ async function resolveChannel() {
   st.channelJid = meta.id; st.channelSrc = c; save(); return st.channelJid;
 }
 
-/* Sama persis seperti script lama: teks + externalAdReply dengan poster Otakudesu. */
+/* Unduh gambar sendiri (tanpa referrer) lalu kirim sebagai thumbnail preview link.
+   Kalau cuma pakai thumbnailUrl, WhatsApp yang mengunduh dan bisa gagal (kotak hitam). */
+async function getThumb(o) {
+  for (const u of [await bannerFor(o), pic(o)].filter(Boolean)) {
+    try {
+      const r = await fetch(u, { signal: AbortSignal.timeout(20000) });
+      const ct = r.headers.get('content-type') || '';
+      if (!r.ok || (ct && !/^image\//i.test(ct))) continue;
+      const buf = Buffer.from(await r.arrayBuffer());
+      if (buf.length && buf.length < 5 * 1024 * 1024) return { buf, url: u };
+    } catch (e) { console.warn('Unduh thumbnail gagal (' + u + '):', e.message); }
+  }
+  return null;
+}
+
 async function send(jid, o) {
-  const link = linkOf(o);
-  return await sock.sendMessage(jid, {
-    text: caption(o),
-    contextInfo: {
-      externalAdReply: {
-        title: `Nonton ${ttl(o)}`,
-        body: 'Klik disini!',
-        thumbnailUrl: pic(o),
-        sourceUrl: link,
-        mediaType: 1,
-        renderLargerThumbnail: true,
-      },
-    },
-  });
+  const t = await getThumb(o);
+  const ad = {
+    title: ttl(o),
+    body: 'Klik untuk nonton di NekoStream',
+    sourceUrl: linkOf(o),
+    mediaType: 1,
+    renderLargerThumbnail: true,
+  };
+  if (t) { ad.thumbnail = t.buf; ad.thumbnailUrl = t.url; }
+  else console.warn('Thumbnail tidak ada untuk', ttl(o));
+  return await sock.sendMessage(jid, { text: caption(o), contextInfo: { externalAdReply: ad } });
 }
 
 async function cycle() {
@@ -217,4 +236,4 @@ if (require.main === module) {
   setInterval(cycle, cfg.EVERY);
 }
 module.exports = { findList, diff, keyOf, caption, bestMatch, mark };
-  
+    
